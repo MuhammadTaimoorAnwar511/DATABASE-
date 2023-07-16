@@ -1,0 +1,378 @@
+use netflix;
+
+CREATE TABLE temp 
+(
+    show_id VARCHAR(50) PRIMARY KEY,
+    type VARCHAR(50),
+    title VARCHAR(100),
+    director VARCHAR(MAX),
+    cast VARCHAR(MAX),
+    country VARCHAR(MAX),
+    date_added VARCHAR(50),
+    release_year INT,
+    rating VARCHAR(50),
+    duration VARCHAR(50),
+    listed_in VARCHAR(MAX),
+    description VARCHAR(MAX)
+);
+
+BULK INSERT temp
+FROM 'C:\Users\TAIMOOR\Desktop\archive (1)\disney_plus_titles.csv'
+WITH (FORMAT = 'CSV'
+      , FIRSTROW=2
+	  , FIELDQUOTE = '"'
+      , FIELDTERMINATOR = ','
+      , ROWTERMINATOR = '0x0a');
+----------------------------------------------
+-----------------------------------------------
+
+
+CREATE TABLE Show 
+(
+    show_id VARCHAR(50) PRIMARY KEY,
+    type VARCHAR(50),
+    title VARCHAR(100),
+    date_added VARCHAR(50),
+    release_year INT,
+    rating VARCHAR(50),
+    duration VARCHAR(50),
+    description VARCHAR(MAX)
+);
+
+CREATE TABLE Director
+(
+    director_id INT IDENTITY(1,1) PRIMARY KEY,
+    director_name VARCHAR(MAX)
+);
+
+CREATE TABLE Show_Director 
+(
+    show_id VARCHAR(50),
+    director_id INT,
+    PRIMARY KEY (show_id, director_id),
+    FOREIGN KEY (show_id) REFERENCES Show(show_id),
+    FOREIGN KEY (director_id) REFERENCES Director(director_id)
+);
+
+CREATE TABLE Cast 
+(
+    cast_id INT IDENTITY(1,1) PRIMARY KEY,
+    cast_name VARCHAR(MAX)
+);
+
+CREATE TABLE Show_Cast 
+(
+    show_id VARCHAR(50),
+    cast_id INT,
+    PRIMARY KEY (show_id, cast_id),
+    FOREIGN KEY (show_id) REFERENCES Show(show_id),
+    FOREIGN KEY (cast_id) REFERENCES Cast(cast_id)
+);
+
+CREATE TABLE Country 
+(
+    country_id INT IDENTITY(1,1) PRIMARY KEY,
+    country_name VARCHAR(MAX)
+);
+
+CREATE TABLE Show_Country 
+(
+    show_id VARCHAR(50),
+    country_id INT,
+    PRIMARY KEY (show_id, country_id),
+    FOREIGN KEY (show_id) REFERENCES Show(show_id),
+    FOREIGN KEY (country_id) REFERENCES Country(country_id)
+);
+
+CREATE TABLE Listed_In 
+(
+    listed_in_id INT IDENTITY(1,1) PRIMARY KEY,
+    listed_in_name VARCHAR(MAX)
+);
+
+CREATE TABLE Show_Listed_In 
+(
+    show_id VARCHAR(50),
+    listed_in_id INT,
+    PRIMARY KEY (show_id, listed_in_id),
+    FOREIGN KEY (show_id) REFERENCES Show(show_id),
+    FOREIGN KEY (listed_in_id) REFERENCES Listed_In(listed_in_id)
+);
+----------------------------------------------------------
+-- Insert into Show
+INSERT INTO Show (show_id, type, title, date_added, release_year, rating, duration, description)
+SELECT show_id, type, title, date_added, release_year, rating, duration, description FROM temp;
+
+-- Insert into Director
+INSERT INTO Director (director_name)
+SELECT DISTINCT Value 
+FROM temp 
+CROSS APPLY STRING_SPLIT(director, ',') 
+WHERE director IS NOT NULL;
+
+-- Insert into Cast
+INSERT INTO Cast (cast_name)
+SELECT DISTINCT Value FROM temp
+CROSS APPLY STRING_SPLIT(cast, ',') WHERE cast IS NOT NULL;
+
+-- Insert into Country
+INSERT INTO Country (country_name)
+SELECT DISTINCT Value FROM temp
+CROSS APPLY STRING_SPLIT(country, ',') WHERE country IS NOT NULL;
+
+-- Insert into Listed_In
+INSERT INTO Listed_In (listed_in_name)
+SELECT DISTINCT Value FROM temp
+CROSS APPLY STRING_SPLIT(listed_in, ',') WHERE listed_in IS NOT NULL;
+-------------------------------------------------------------
+-- Insert into Show_Director
+INSERT INTO Show_Director (show_id, director_id)
+SELECT t.show_id, d.director_id
+FROM temp t
+CROSS APPLY STRING_SPLIT(t.director, ',') AS DA
+JOIN Director d ON DA.Value = d.director_name
+WHERE t.director IS NOT NULL;
+
+-- Insert into Show_Cast
+INSERT INTO Show_Cast (show_id, cast_id)
+SELECT t.show_id, c.cast_id
+FROM temp t
+CROSS APPLY STRING_SPLIT(t.cast, ',') AS CA
+JOIN Cast c ON CA.Value = c.cast_name
+WHERE t.cast IS NOT NULL;
+
+-- Insert into Show_Country
+INSERT INTO Show_Country (show_id, country_id)
+SELECT t.show_id, c.country_id
+FROM temp t
+CROSS APPLY STRING_SPLIT(t.country, ',') AS CO
+JOIN Country c ON CO.Value = c.country_name
+WHERE t.country IS NOT NULL;
+
+-- Insert into Show_Listed_In
+INSERT INTO Show_Listed_In (show_id, listed_in_id)
+SELECT t.show_id, l.listed_in_id
+FROM temp t
+CROSS APPLY STRING_SPLIT(t.listed_in, ',') AS LI
+JOIN Listed_In l ON LI.Value = l.listed_in_name
+WHERE t.listed_in IS NOT NULL;
+----------------------------------------------------------
+----------------------------------------------------------
+-----------------------------------------------------------------------------QUERIES-----------------------------------------
+drop table temp;
+
+--i. 3 Queries which use various aggregation functions
+
+
+--1.Count the total number of shows.
+SELECT COUNT(*) as TotalShows FROM Show;
+--2.Find the average release year of all shows.
+SELECT AVG(release_year) as AvgReleaseYear FROM Show;
+--3.Find the maximum length duration of all shows.
+SELECT MAX(duration) as MaxDuration FROM Show;
+
+--ii. 3 Queries which use various aggregation functions and involve more than 2 tables (database join)
+
+
+--4.Count the total number of directors for each show.
+SELECT s.title, COUNT(*) as TotalDirectors 
+FROM Show s 
+JOIN Show_Director sd ON s.show_id = sd.show_id 
+GROUP BY s.title;
+--5.Count the total number of actors for each show
+SELECT s.title, COUNT(*) as TotalActors 
+FROM Show s 
+JOIN Show_Cast sc ON s.show_id = sc.show_id 
+GROUP BY s.title;
+--6.Count the total number of countries for each show.
+SELECT s.title, COUNT(*) as TotalCountries 
+FROM Show s 
+JOIN Show_Country sc ON s.show_id = sc.show_id 
+GROUP BY s.title;
+
+--iii. 3 Nested queries
+
+--7.Find the shows that have more than the average number of directors.
+SELECT s.title 
+FROM Show s 
+WHERE (SELECT COUNT(*) FROM Show_Director sd WHERE s.show_id = sd.show_id) >
+(SELECT AVG(DirectorCount) FROM (SELECT COUNT(*) as DirectorCount
+FROM Show_Director 
+GROUP BY show_id) as sub);
+
+--8.Find the shows that have more than the average number of actors.
+SELECT s.title 
+FROM Show s 
+WHERE (SELECT COUNT(*) FROM Show_Cast sc WHERE s.show_id = sc.show_id) >
+(SELECT AVG(ActorCount) FROM (SELECT COUNT(*) as ActorCount 
+FROM Show_Cast 
+GROUP BY show_id) as sub);
+--9.Find the shows that have more than the average number of countries.
+SELECT s.title 
+FROM Show s 
+WHERE (SELECT COUNT(*) FROM Show_Country sc WHERE s.show_id = sc.show_id) >
+(SELECT AVG(CountryCount) FROM (SELECT COUNT(*) as CountryCount
+FROM Show_Country
+GROUP BY show_id) as sub);
+
+
+
+--iv. 3 queries involving outer joins and aggregation functions
+
+
+--10.Count the total number of directors for each show, including shows with no directors.
+SELECT s.title, COUNT(d.director_id) as TotalDirectors 
+FROM Show s 
+LEFT JOIN Show_Director sd ON s.show_id = sd.show_id 
+LEFT JOIN Director d ON sd.director_id = d.director_id
+GROUP BY s.title;
+--11.Count the total number of actors for each show, including shows with no actors.
+SELECT s.title, COUNT(c.cast_id) as TotalActors 
+FROM Show s 
+LEFT JOIN Show_Cast sc ON s.show_id = sc.show_id 
+LEFT JOIN Cast c ON sc.cast_id = c.cast_id
+GROUP BY s.title;
+--12.Count the total number of countries for each show, including shows with no countries.
+SELECT s.title, COUNT(co.country_id) as TotalCountries 
+FROM Show s 
+LEFT JOIN Show_Country sc ON s.show_id = sc.show_id 
+LEFT JOIN Country co ON sc.country_id = co.country_id
+GROUP BY s.title;
+
+
+--v. 3 queries involving set operators.
+
+
+--13.Union: Shows that are either directed by "Jason Sterman" or have a genre "Comedy"
+SELECT s.title
+FROM Show s 
+JOIN Show_Director sd ON s.show_id = sd.show_id 
+JOIN Director d ON sd.director_id = d.director_id 
+WHERE d.director_name = 'Jason Sterman'
+UNION
+SELECT s.title
+FROM Show s 
+JOIN Show_Listed_In sli ON s.show_id = sli.show_id 
+JOIN Listed_In li ON sli.listed_in_id = li.listed_in_id 
+WHERE li.listed_in_name = 'Comedy';
+--14.Except: Shows that are directed by "Jason Sterman" but do not have a genre "Comedy"
+SELECT s.title
+FROM Show s 
+JOIN Show_Director sd ON s.show_id = sd.show_id 
+JOIN Director d ON sd.director_id = d.director_id 
+WHERE d.director_name = 'Jason Sterman'
+EXCEPT
+SELECT s.title
+FROM Show s 
+JOIN Show_Listed_In sli ON s.show_id = sli.show_id 
+JOIN Listed_In li ON sli.listed_in_id = li.listed_in_id 
+WHERE li.listed_in_name = 'Comedy';
+--15.Union: Shows that are either rated "PG-13" or have "Johnny Depp" as a cast member
+SELECT s.title
+FROM Show s 
+WHERE s.rating = 'PG-13'
+UNION
+SELECT s.title
+FROM Show s 
+JOIN Show_Cast sc ON s.show_id = sc.show_id 
+JOIN Cast c ON sc.cast_id = c.cast_id 
+WHERE c.cast_name = 'Johnny Depp';
+
+/*
+--1.Find shows that have the same directors and actors.
+SELECT title FROM 
+(
+    SELECT s.title
+    FROM Show s 
+    JOIN Show_Director sd ON s.show_id = sd.show_id 
+    UNION
+    SELECT s.title
+    FROM Show s 
+    JOIN Show_Cast sc ON s.show_id = sc.show_id
+) as sub
+GROUP BY title
+HAVING COUNT(*) > 1;
+--2.Find shows that have the same actors and are from the same countries.
+SELECT title FROM (
+    SELECT s.title
+    FROM Show s 
+    JOIN Show_Cast sc ON s.show_id = sc.show_id 
+    UNION
+    SELECT s.title
+    FROM Show s 
+    JOIN Show_Country sco ON s.show_id = sco.show_id
+) as sub
+GROUP BY title
+HAVING COUNT(*) > 1;
+--3.Find shows that have the same directors and are from the same countries.
+SELECT title FROM (
+    SELECT s.title
+    FROM Show s 
+    JOIN Show_Director sd ON s.show_id = sd.show_id 
+    UNION
+    SELECT s.title
+    FROM Show s 
+    JOIN Show_Country sco ON s.show_id = sco.show_id
+) as sub
+GROUP BY title
+HAVING COUNT(*) > 1;
+*/
+
+
+--vi. 3 queries to compare the difference in execution time of different types of joins like outer join vs equi join etc.
+
+
+--16.Compare execution time of inner join.
+SET STATISTICS TIME ON;
+SELECT s.title, d.director_name
+FROM Show s 
+JOIN Show_Director sd ON s.show_id = sd.show_id 
+JOIN Director d ON sd.director_id = d.director_id;
+SET STATISTICS TIME OFF;
+
+--17.Compare execution time of left join.
+SET STATISTICS TIME ON;
+SELECT s.title, d.director_name
+FROM Show s 
+LEFT JOIN Show_Director sd ON s.show_id = sd.show_id 
+LEFT JOIN Director d ON sd.director_id = d.director_id;
+SET STATISTICS TIME OFF;
+
+--18.Compare execution time of right join.
+SET STATISTICS TIME ON;
+SELECT s.title, d.director_name
+FROM Show s 
+RIGHT JOIN Show_Director sd ON s.show_id = sd.show_id 
+RIGHT  JOIN Director d ON sd.director_id = d.director_id;
+SET STATISTICS TIME OFF;
+
+--vii. Other queries
+
+
+--19a. Display all the movies/tv shows directed by Jason Sterman.
+SELECT s.title 
+FROM Show s 
+JOIN Show_Director sd ON s.show_id = sd.show_id 
+JOIN Director d ON sd.director_id = d.director_id
+WHERE d.director_name = 'Jason Sterman';
+
+--20b. Display all the movies/tv shows with genre “Comedy”.
+SELECT s.title 
+FROM Show s 
+JOIN Show_Listed_In sli ON s.show_id = sli.show_id 
+JOIN Listed_In li ON sli.listed_in_id = li.listed_in_id
+WHERE li.listed_in_name = 'Comedy';
+
+--21c. Display all the movies/tv shows with rating “PG-13”.
+SELECT title 
+FROM Show 
+WHERE rating = 'PG-13';
+
+--22d. Display all the movies/tv shows in which actor “Johnny Depp” has worked.
+SELECT s.title 
+FROM Show s 
+JOIN Show_Cast sc ON s.show_id = sc.show_id 
+JOIN Cast c ON sc.cast_id = c.cast_id
+WHERE c.cast_name = 'Johnny Depp';
+
+
